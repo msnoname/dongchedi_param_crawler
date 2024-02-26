@@ -1,9 +1,13 @@
+import json
+import os.path
+
 import scrapy
 from dongchedi.items import DongchediItem
 from dongchedi.items import BrandItem
 import pandas as pd
 import re
 from datetime import datetime
+import sys
 
 
 def get_space_num(s):
@@ -76,11 +80,33 @@ class ParamSpider(scrapy.Spider):
     name = "param"
     custom_settings = {'ITEM_PIPELINES': {'dongchedi.pipelines.ParamPipeline': 1}}
     allowed_domains = ["dongchedi.com"]
-    try:
-        brand_df = pd.read_excel(f'data/{MONTH}/brand/brand_{MONTH}.xlsx', skiprows=[1])
-        start_urls = brand_df['url'].tolist()
-    except FileNotFoundError:
-        pass
+    job = None
+
+    def start_requests(self):
+        reqs = []
+        self.job = sys.argv[-1].split('/')[-1]
+        fail_path = f'data/{MONTH}/{self.job}/fail.json'
+        if os.path.exists(fail_path):
+            with open(fail_path, 'r') as file:
+                last_fail = json.load(file)
+            last_fail["car_series"] = last_fail.get("car_series", {})
+            for v in last_fail['car_series'].values():
+                reqs += [scrapy.Request(url=v['url'], meta=v['meta'],
+                                        callback=self.parse_url, dont_filter=True)]
+            last_fail["car_type"] = last_fail.get("car_type", {})
+            for v in last_fail['car_type'].values():
+                reqs += [scrapy.Request(url=v['url'], meta=v['meta'],
+                                        callback=self.parse_param, dont_filter=True)]
+        try:
+            brand_df = pd.read_excel(f'data/{MONTH}/brand/brand_{MONTH}.xlsx', skiprows=[1])
+            start_urls = brand_df['url'].tolist()
+            for url in start_urls:
+                reqs += [scrapy.Request(url=url, callback=self.parse, dont_filter=True)]
+        except FileNotFoundError:
+            print(f'"brand_{MONTH}.xlsx" not found, please execute "scrapy crawl brand" first.')
+        except:
+            print("Unexpected error:", sys.exc_info()[0])
+        return reqs
 
     def parse(self, response):
         """
@@ -104,19 +130,27 @@ class ParamSpider(scrapy.Spider):
         车系页面 https://www.dongchedi.com/auto/series/957
         响应页面 https://www.dongchedi.com/motor/pc/car/series/car_list?series_id=957
         """
-        info = response.json()
-        if info["message"] != "success":  # 有些车还没挂出信息，或者网络错误
-            self.state["fail"] = self.state.get("fail", {})
-            self.state["fail"]["interior error"] = self.state.get("fail", {}).get("interior error", set())
-            fail_url = f"https://www.dongchedi.com/auto/series/{response.url.split('=')[-1]}"
-            self.state["fail"]["interior error"].add(fail_url)
-            print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")}            '
-                  f'<Series Failure> No Car Type: {fail_url}')
-            return
         brand = response.meta["brand"]
         code_brand = response.meta["code_brand"]
         car_series = response.meta["car_series"]
         code_car_series = response.meta["code_car_series"]
+
+        self.state["fail"] = self.state.get("fail", {})
+        self.state["fail"]["car_series"] = self.state["fail"].get("car_series", {})
+        info = response.json()
+        if info["message"] != "success":  # 爬取失败，通常是因为有些车还没挂出car type信息
+            fail_state = {"url": response.url,
+                          "meta": response.meta,
+                          "fail_info": info}
+            self.state["fail"]["car_series"][code_car_series] = \
+                self.state["fail"]["car_series"].get(code_car_series, fail_state)
+            print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")} <NotFound> '
+                  f'{car_series}{" " * get_space_num(car_series)}'
+                  f'https://www.dongchedi.com/auto/series/{code_car_series}')
+            return
+        else:
+            if code_car_series in self.state["fail"]["car_series"]:
+                del self.state["fail"]["car_series"][code_car_series]
 
         tab_list = info["data"]["tab_list"]
         for tab in tab_list:
@@ -125,7 +159,8 @@ class ParamSpider(scrapy.Spider):
                 for d in data:
                     if d["info"].get("id"):  # 题头筛掉
                         sale = tab["tab_text"]
-                        url = "https://www.dongchedi.com/auto/params-carIds-" + str(d["info"].get("id"))
+                        code_car_type = str(d["info"].get("id"))
+                        url = f"https://www.dongchedi.com/auto/params-carIds-{code_car_type}"
                         yield scrapy.Request(url=url, meta={"brand": brand,
                                                             "code_brand": code_brand,
                                                             "car_series": car_series,
@@ -138,28 +173,38 @@ class ParamSpider(scrapy.Spider):
         爬取每个车型car_type的参数
         车型页面 https://www.dongchedi.com/auto/series/957/model-13604?cityName=%E5%8C%97%E4%BA%AC
         响应页面 https://www.dongchedi.com/auto/params-carIds-13604
-        价格页面 https://www.dongchedi.com/motor/pc/car/series/car_dealer_price?car_ids=13604&city_name=%E5%8C%97%E4%BA%AC
+        # 价格页面 https://www.dongchedi.com/motor/pc/car/series/car_dealer_price?car_ids=13604&city_name=%E5%8C%97%E4%BA%AC
         """
         item = DongchediItem()
-        car_type = response.xpath("//@title").extract()[1]
-        if not car_type:  # 通常是网络错误
-            self.state["fail"] = self.state.get("fail", {})
-            self.state["fail"]["network error"] = self.state.get("fail", {}).get("network error", set())
-            self.state["fail"]["network error"].add(response.url)
-            print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")}            '
-                  f'<Param Failure> Network Error: {response.url}')
-            return
+        code_car_series = response.meta["code_car_series"]
+        code_car_type = int(response.url.split('-')[-1])
 
-        url = response.xpath("//a[@title]/@href").extract()[1]
+        self.state["fail"] = self.state.get("fail", {})
+        self.state["fail"]["car_type"] = self.state["fail"].get("car_type", {})
+        car_type = response.xpath("//@title").extract()[1]
+        if not car_type or not re.search(r"([0-9]{4})款", car_type):  # 无法获取car_type，通常是因为网络错误
+            fail_state = {"url": response.url,
+                          "meta": response.meta,
+                          "fail_info": car_type}
+            self.state["fail"]["car_type"][code_car_type] = \
+                self.state["fail"]["car_type"].get(code_car_type, fail_state)
+            print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")} <NetError> '
+                  f'{car_type}{" " * get_space_num(car_type)}'
+                  f'https://www.dongchedi.com/auto/series/{code_car_series}/model-{code_car_type}'
+                  f'?cityName=%E5%8C%97%E4%BA%AC')
+            return
+        else:
+            if code_car_type in self.state["fail"]["car_type"]:
+                del self.state["fail"]["car_type"][code_car_type]
 
         item["code_brand"] = response.meta["code_brand"]
-        item["code_car_series"] = response.meta["code_car_series"]
-        item["code_car_type"] = int(url.split('-')[-1])
+        item["code_car_series"] = code_car_series
+        item["code_car_type"] = code_car_type
         item["brand"] = response.meta["brand"]
         item["car_series"] = response.meta["car_series"]
         item["car_type"] = car_type
         item["year"] = int(re.search(r"([0-9]{4})款", car_type).group(1))
-        item["url"] = "https://www.dongchedi.com" + url
+        item["url"] = f'https://www.dongchedi.com/auto/series/{item["code_car_series"]}/model-{item["code_car_type"]}'
         item["sale"] = response.meta["sale"]
         item["dealer_price"] = response.xpath("//span[starts-with(@class,'cell_price')]/text()").extract_first()
 
@@ -189,9 +234,9 @@ class ParamSpider(scrapy.Spider):
                     item_raw.pop(0)
                 item[col] = ' '.join(item_raw)
 
-        self.state["succeed"] = self.state.get("succeed", 0) + 1
-        item["crawl_index"] = self.state["succeed"]
-        print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")}   {str(self.state["succeed"]).rjust(6)}   '
+        self.state["crawled"] = self.state.get("crawled", 0) + 1
+        item["crawl_index"] = self.state["crawled"]
+        print(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")}   {str(self.state["crawled"]).rjust(6)}   '
               f'{car_type}{" " * get_space_num(car_type)}{response.url}')
         yield item
 

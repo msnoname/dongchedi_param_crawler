@@ -31,8 +31,8 @@ class BrandPipeline(object):
                 cell.font = BOLD
 
     def close_spider(self, spider):
-        name = spider.name
-        xlsx_path = f'data/{MONTH}/{name}/{name}_{MONTH}.xlsx'
+        job = spider.name
+        xlsx_path = f'data/{MONTH}/{job}/{job}_{MONTH}.xlsx'
         self.wb.save(xlsx_path)
         print('Success!')
 
@@ -54,9 +54,10 @@ class ParamPipeline(object):
     def close_spider(self, spider):
         print("--------------------------------------------------")
         print("Reading data from jsonlines...")
-        name = sys.argv[-1].split('/')[-1]
-        jsonl_path = f'data/{MONTH}/{name}/{name}_{MONTH}.jsonl'
-        xlsx_path = f'data/{MONTH}/{name}/{name}_{MONTH}.xlsx'
+        job = sys.argv[-1].split('/')[-1]
+        jsonl_path = f'data/{MONTH}/{job}/{job}_{MONTH}.jsonl'
+        xlsx_path = f'data/{MONTH}/{job}/{job}_{MONTH}.xlsx'
+        fail_path = f'data/{MONTH}/{job}/fail.json'
         wb = Workbook()
         ws = wb.active
         for i in range(len(spider.state["columns"])):
@@ -65,12 +66,14 @@ class ParamPipeline(object):
         for row in ws['1:2']:
             for cell in row:
                 cell.font = BOLD
+        succeed = 0
+        duplicated = 0
         with open(jsonl_path, 'r') as f:
             car_type_set = set()
             for line in tqdm(f):
                 item = json.loads(line)
-                if item["car_type"] not in car_type_set:
-                    car_type_set.add(item["car_type"])
+                if item["code_car_type"] not in car_type_set:
+                    car_type_set.add(item["code_car_type"])
                     xlsx_line = []
                     for key in spider.state["columns"].keys():
                         value = item.get(key, None)
@@ -92,19 +95,31 @@ class ParamPipeline(object):
                                     pass
                         xlsx_line += [value]
                     ws.append(xlsx_line)
+                    succeed += 1
+                else:
+                    duplicated += 1
         num_cols = len(spider.state["columns"])
+        # print('Number of Columns:', num_cols)
         ref_str = "A2:{}2".format(get_column_letter(num_cols))
         ws.auto_filter.ref = ref_str  # 开启筛选功能
         print("Exporting to excel...")
         wb.save(xlsx_path)
         print("Excel saved successfully!")
         print("Spider closed: %s" % spider.name)
+        print("--------------------------------------------------")
         self.end_time = datetime.now()
         time_diff = self.end_time - self.start_time
         spider.state['total_time_cost'] = spider.state.get('total_time_cost', timedelta()) + time_diff
         print(f"Time Cost: {time_diff} (Total: {spider.state['total_time_cost']})")
-        print(f"Success: {spider.state.get('succeed', 0)}")
-        print(f"Failure: {spider.state.get('fail', 0)}")
+        # crawled = spider.state.get('crawled', 0)
+        # print(f"Success: {succeed} = {crawled}(crawled) - {duplicated}(duplicated)")
+        print(f"Success: {succeed}")
+        with open(fail_path, 'w') as file:
+            json.dump(spider.state.get('fail'), file)
+        fail_car_series = spider.state.get('fail', {}).get('car_series', {})
+        fail_car_type = spider.state.get('fail', {}).get('car_type', {})
+        print(f"Failure: {len(fail_car_series)} car series, {len(fail_car_type)} car types")
+        print("Finished!")
 
     def process_item(self, item, spider):
         item["dealer_price"] = float(item["dealer_price"].replace("万", "")) \

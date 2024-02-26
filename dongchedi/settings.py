@@ -19,9 +19,9 @@ MONTH = datetime.now().strftime('%Y%m')
 NOW = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-if len(sys.argv) >= 3 and sys.argv[2] == 'param':
-    name = sys.argv[-1].split('/')[-1]
-    jsonl_path = f'data/{MONTH}/{name}/{name}_{MONTH}.jsonl'
+if len(sys.argv) >= 3 and sys.argv[2] in ['param', 'retry']:
+    job = sys.argv[-1].split('/')[-1]
+    jsonl_path = f'data/{MONTH}/{job}/{job}_{MONTH}.jsonl'
     FEEDS = {
         jsonl_path: {
             'format': 'jsonlines',
@@ -29,16 +29,16 @@ if len(sys.argv) >= 3 and sys.argv[2] == 'param':
         }
     }
 elif len(sys.argv) >= 3 and sys.argv[2] == 'brand':
-    name = 'brand'
+    job = 'brand'
 else:
-    name = None
+    job = None
 
-if name:
-    root = f'data/{MONTH}/{name}'
+if job:
+    root = f'data/{MONTH}/{job}'
     os.makedirs(root, exist_ok=True)
     os.makedirs(os.path.join(root, 'log'), exist_ok=True)
     LOG_LEVEL = 'INFO'
-    LOG_FILE = os.path.join(root, 'log', f'{name}_{NOW}.log')
+    LOG_FILE = os.path.join(root, 'log', f'{job}_{NOW}.log')
 
 
 # Encoding
@@ -96,7 +96,6 @@ CONCURRENT_REQUESTS = 100
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    'dongchedi.pipelines.BrandPipeline': 300,
     'dongchedi.pipelines.DongchediPipeline': 300,
 }
 
