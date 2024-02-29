@@ -5,7 +5,7 @@
 1. 充足的电量和稳定的网络环境：设置电脑睡眠时不断网
 2. 语言：python3.10
 3. 软件：pycharm，社区版即可
-4. 用 pycharm 打开 dongchedi_param_crawler 项目，点击 Terminal 窗口，以下代码均在命令行执行<div align="center"><img src="image/A-4.png" width="500"></div>
+4. 用 pycharm 打开 dongchedi_param_crawler 项目，点击 Terminal 窗口，以下代码均在命令行执行<div align="center"><img src="image/A-4.png"></div>
 5. 安装需要的python包：`pip install -r requirements.txt`
 
 ## B. 爬虫
@@ -14,12 +14,12 @@
    - 代码需在 dongchedi_param_cralwer 文件夹下执行，注意把路径替换为你的路径
    - 注意路径分隔符：Windows 系统使用 "\\\\"，Mac OS 系统使用 "/"
 1. 爬取所有汽车品牌：`scrapy crawl brand`
-   - 执行该条命令后，自动生成的文件结构如图所示，相应文件和文件夹会自动按照执行命令时的年月命名<div align="center"><img src="image/B-1.png" width="500"></div>
+   - 执行该条命令后，自动生成的文件结构如图所示，相应文件和文件夹会自动按照执行命令时的年月命名<div align="center"><img src="image/B-1.png"></div>
    - brand_202402.xlsx 为汽车品牌数据
 2. 爬取所有车型的价格和参数配置：`scrapy crawl param -s JOBDIR=data/202402/param_1`
    - JOBDIR 为存放完整参数数据及相关文件的文件夹，其中"202402"为当前年月，"param_"后的数字为任务序号
    - 在执行时，需要根据实际情况修改年月和"param_"后面的数字，例如，2024 年 2 月第一次执行爬虫任务，则执行`scrapy crawl param -s JOBDIR=data/202402/param_1`
-   - 在执行这条命令之后，Terminal 窗口会开始实时滚动显示已爬取的车型，data/202402 文件夹下产生了一个名为 param_1 的文件夹<div align="center"><img src="image/B-2-3.png" width="200"></div><div align="center"><img src="image/B-2-3.gif" width="500"></div>
+   - 在执行这条命令之后，Terminal 窗口会开始实时滚动显示已爬取的车型，data/202402 文件夹下产生了一个名为 param_1 的文件夹<div align="center"><img src="image/B-2-3.png" width="200"></div><div align="center"><img src="image/B-2-3.gif"></div>
    - 漫长的等待……（在100M带宽、网络良好的情况下需要2.5h左右）直至 Terminal 窗口显示此次任务的耗时、成功数和失败数，爬取完毕<div align="center"><img src="image/B-2-4.png" width="500"></div>
 3. 暂停和恢复任务：`Ctrl+C`，重新执行第 4 步
    - 如果中途需要暂停任务，按一次`Ctrl+C`（注意不要多按，否则会导致程序强行终止，可能丢失数据）
